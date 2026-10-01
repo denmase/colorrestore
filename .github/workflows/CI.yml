@@ -78,9 +78,14 @@ jobs:
             curl -sL --retry 3 -o avs/avs/$f $BASE/avs/$f
           done
 
-      - name: Build ColorRestore.dll (MinGW)
+      - name: Build ColorRestore.dll (MinGW, static runtime)
         shell: msys2 {0}
-        run: g++ -O2 -std=c++17 -shared -Iavs -Isrc src/ColorRestore.cpp -o ColorRestore.dll
+        # -static-* embeds libgcc/libstdc++/winpthread so the dll loads on any
+        # Windows machine without MSYS2 runtime DLLs (plugin distribution)
+        run: >-
+          g++ -O2 -std=c++17 -shared -Iavs -Isrc src/ColorRestore.cpp -o ColorRestore.dll
+          -static-libgcc -static-libstdc++
+          -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
