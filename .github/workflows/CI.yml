@@ -37,13 +37,13 @@ jobs:
           g++ -O2 -std=c++17 -shared -fPIC -I. -Isrc src/ColorRestore.cpp -o ColorRestore.so
           rm -f avisynth.h
 
-      - name: Golden test: Vibrance vs FFmpeg
+      - name: Golden test -  Vibrance vs FFmpeg
         run: cd tests && python3 golden_test.py
 
-      - name: Golden test: ColorTemp vs FFmpeg
+      - name: Golden test -  ColorTemp vs FFmpeg
         run: cd tests && python3 gt_colortemp.py
 
-      - name: Golden test: Oklab (dual reference)
+      - name: Golden test -  Oklab (dual reference)
         run: |
           pip3 install colour-science
           cd tests && python3 gt_oklab.py
