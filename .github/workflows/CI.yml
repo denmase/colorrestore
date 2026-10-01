@@ -59,26 +59,43 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [clang-cl, mingw]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: msys2/setup-msys2@v2
+      - name: Fetch official AviSynth+ headers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force avs\avs | Out-Null
+          $BASE = "https://raw.githubusercontent.com/AviSynth/AviSynthPlus/master/avs_core/include"
+          curl.exe -sL --retry 3 -o avs\avisynth.h "$BASE/avisynth.h"
+          foreach ($f in @("config.h","capi.h","alignment.h","posix.h","minmax.h","types.h","cpuid.h","filesystem.h","win.h")) {
+            curl.exe -sL --retry 3 -o "avs\avs\$f" "$BASE/avs/$f"
+          }
+
+      - name: Setup MSVC environment (clang-cl)
+        if: matrix.toolchain == 'clang-cl'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup MSYS2 (MinGW)
+        if: matrix.toolchain == 'mingw'
+        uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
-          install: mingw-w64-x86_64-gcc curl
+          install: mingw-w64-x86_64-gcc
 
-      - name: Fetch official AviSynth+ headers
-        shell: msys2 {0}
-        run: |
-          mkdir -p avs/avs
-          BASE=https://raw.githubusercontent.com/AviSynth/AviSynthPlus/master/avs_core/include
-          curl -sL --retry 3 -o avs/avisynth.h $BASE/avisynth.h
-          for f in config.h capi.h alignment.h posix.h minmax.h types.h cpuid.h filesystem.h win.h; do
-            curl -sL --retry 3 -o avs/avs/$f $BASE/avs/$f
-          done
+      - name: Build ColorRestore.dll (clang-cl)
+        if: matrix.toolchain == 'clang-cl'
+        run: >-
+          clang-cl /O2 /std:c++17 /LD /nologo /I avs /I src
+          src\ColorRestore.cpp /Fe:ColorRestore.dll
 
       - name: Build ColorRestore.dll (MinGW, static runtime)
+        if: matrix.toolchain == 'mingw'
         shell: msys2 {0}
         # -static-* embeds libgcc/libstdc++/winpthread so the dll loads on any
         # Windows machine without MSYS2 runtime DLLs (plugin distribution)
@@ -90,5 +107,5 @@ jobs:
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ColorRestore-windows
+          name: ColorRestore-windows-${{ matrix.toolchain }}
           path: ColorRestore.dll
