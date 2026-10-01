@@ -172,7 +172,9 @@ src/vibrance_core.h     pure algorithms, no AviSynth deps (unit-testable)
 src/ColorRestore.cpp    AviSynth+ wrapper (interface v12); dispatch
                         8/16/float x space(0/1/3) x auto(0/1/smoothed)
 tests/test_core.cpp     unit tests (35 checks)
-tests/golden_test.py    golden test: Vibrance vs ffmpeg -vf vibrance
+tests/golden_test.py    golden test: Vibrance vs ffmpeg (planar gbrp end-to-end;
+                        bypasses swscale, whose packed<->planar rounding changed
+                        in ffmpeg 6.0; validates both legacy and modern modes)
 tests/gt_colortemp.py   golden test: ColorTemp vs ffmpeg -vf colortemperature
 tests/gt_oklab.py       golden test: Oklab vs Ottosson spec + colour-science
 tests/bridge*.cpp       RGB24<->planar adapters used by the golden tests
