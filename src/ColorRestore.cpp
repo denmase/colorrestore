@@ -22,7 +22,7 @@ static inline void requireRange(IScriptEnvironment* env, bool ok, const char* wh
 
 class VibranceFilter : public GenericVideoFilter {
     VibranceParams p;
-    TransferLuts luts[2];       // [0]=sRGB, [1]=BT.709 OETF
+    TransferLuts luts[colorrestore::TF_COUNT];
     std::map<int, float> statsCache;
     std::mutex statsMutex;
 
@@ -95,13 +95,12 @@ public:
             requireRange(env, p.balance[i] >= -10.f && p.balance[i] <= 10.f, "balance (-10..10)");
         requireRange(env, p.skin >= 0.f && p.skin <= 1.f, "skin (0..1)");
         requireRange(env, p.auto_strength >= 0.f && p.auto_strength <= 1.f, "auto (0..1)");
-        requireRange(env, p.space >= 0 && p.space <= 3, "space (0..3: 0=gamma 1=linear 3=oklab)");
-        requireRange(env, p.transfer >= 0 && p.transfer <= 2, "transfer (0..2)");
+        requireRange(env, p.space >= 0 && p.space <= 3, "space (0=gamma 1=linear 2=log/ACEScct 3=oklab)");
+        requireRange(env, p.transfer >= 0 && p.transfer <= 4, "transfer (0=auto 1=sRGB 2=BT709 3=PQ 4=HLG)");
         if (p.auto_smoothing < 1) p.auto_smoothing = 1;
 
         if (p.space >= 1) {
-            build_transfer_luts(luts[TF_SRGB], TF_SRGB);
-            build_transfer_luts(luts[TF_BT709], TF_BT709);
+            for (int k = 0; k < TF_COUNT; ++k) build_transfer_luts(luts[k], k);
         }
     }
 
@@ -152,9 +151,9 @@ AVSValue __cdecl Create_Vibrance(AVSValue args, void*, IScriptEnvironment* env) 
     p.balance[0] = args[2].AsFloatf(1.0f);
     p.balance[1] = args[3].AsFloatf(1.0f);
     p.balance[2] = args[4].AsFloatf(1.0f);
-    p.luma[0]    = args[5].AsFloatf(0.072186f);
-    p.luma[1]    = args[6].AsFloatf(0.715158f);
-    p.luma[2]    = args[7].AsFloatf(0.212656f);
+    p.luma[0]    = args[5].AsFloatf(-1.f);   // resolved after 'legacy' is known
+    p.luma[1]    = args[6].AsFloatf(-1.f);
+    p.luma[2]    = args[7].AsFloatf(-1.f);
     p.alternate  = args[8].AsBool(false);
     p.skin       = args[9].AsFloatf(0.0f);
     p.skin_hue   = args[10].AsFloatf(25.0f);
@@ -170,6 +169,18 @@ AVSValue __cdecl Create_Vibrance(AVSValue args, void*, IScriptEnvironment* env) 
     p.space           = args[20].AsInt(0);
     p.transfer        = args[21].AsInt(0);
     p.auto_smoothing  = args[22].AsInt(1);
+    const bool legacy = args[23].AsBool(true);
+    if (p.luma[0] < 0.f && p.luma[1] < 0.f && p.luma[2] < 0.f) {
+        if (legacy) {   // FFmpeg 5.x/6.x defaults (R/B swapped; historical quirk we preserve)
+            p.luma[0] = 0.072186f; p.luma[1] = 0.715158f; p.luma[2] = 0.212656f;
+        } else {        // FFmpeg 7+ defaults (proper BT.709)
+            p.luma[0] = 0.212656f; p.luma[1] = 0.715158f; p.luma[2] = 0.072186f;
+        }
+    } else {
+        p.luma[0] = args[5].AsFloatf(0.072186f);   // explicit values win
+        p.luma[1] = args[6].AsFloatf(0.715158f);
+        p.luma[2] = args[7].AsFloatf(0.212656f);
+    }
     return new VibranceFilter(args[0].AsClip(), p, env);
 }
 
@@ -238,6 +249,11 @@ AVSValue __cdecl Create_ColorTemp(AVSValue args, void*, IScriptEnvironment* env)
     return new ColorTempFilter(args[0].AsClip(), p, env);
 }
 
+// the host passes the linkage table at load time; plugins must define this
+// symbol (avisynth.h only declares it extern). Linux .so links tolerate the
+// undefined reference, Windows linkers do not.
+const AVS_Linkage* AVS_linkage = nullptr;
+
 extern "C" __attribute__((visibility("default")))
 const char* AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* linkage) {
     AVS_linkage = linkage;   // required: host passes linkage, plugins must adopt it
@@ -248,7 +264,7 @@ const char* AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* link
         "[rlum]f[glum]f[blum]f[alternate]b"
         "[skin]f[skin_hue]f[skin_range]f[skin_sat_min]f[skin_sat_max]f"
         "[sat_limit]f[shadow_protect]f[highlight_protect]f[show]b"
-        "[auto]f[auto_target_sat]f[space]i[transfer]i[auto_smoothing]i",
+        "[auto]f[auto_target_sat]f[space]i[transfer]i[auto_smoothing]i[legacy]b",
         Create_Vibrance, nullptr);
     env->AddFunction(
         "ColorTemp",

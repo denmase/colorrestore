@@ -181,8 +181,9 @@ void vibrance_frame(const VibranceParams& p,
 
 
 // ---- transfer functions + LUTs for space=1 (linear light) ----
-enum TransferKind { TF_SRGB = 0, TF_BT709 = 1 };
-static constexpr int LUT_SIZE = 1025;
+enum TransferKind { TF_SRGB = 0, TF_BT709 = 1, TF_ACEScct = 2, TF_PQ = 3, TF_HLG = 4 };
+static constexpr int TF_COUNT = 5;
+static constexpr int LUT_SIZE = 4097;   // uniform LUT; PQ/HLG/ACEScct have steep toes
 
 struct TransferLuts {
     float to_linear[LUT_SIZE];
@@ -194,11 +195,40 @@ static inline float lin2srgb(float l) { return l <= 0.0031308f ? l * 12.92f : 1.
 static inline float bt7092lin(float c) { return c <= 0.081f ? c / 4.5f : std::pow((c + 0.099f) / 1.099f, 1.f / 0.45f); }
 static inline float lin2bt709(float l) { return l <= 0.018f ? l * 4.5f : 1.099f * std::pow(l, 0.45f) - 0.099f; }
 
+// ACEScct (log grading space; toe handles blacks without floor issues)
+static inline float lin_to_acesct(float x) { return x <= 0.0078125f ? 10.5402377416545f*x + 0.0729055341958355f : (std::log2(x) + 9.72f) / 17.52f; }
+static inline float acesct_to_lin(float x) { return x <= 0.155251141552511f ? (x - 0.0729055341958355f) / 10.5402377416545f : std::pow(2.0f, x*17.52f - 9.72f); }
+
+// SMPTE ST 2084 PQ (1.0 code = 10000 nits; we treat it as relative linear)
+static inline float pq_to_linear(float v) {
+    const float p = std::pow(v, 1.0f/78.84375f);
+    return std::pow(std::max(p - 0.8359375f, 0.0f) / (18.8515625f - 18.6875f*p), 1.0f/0.1593017578125f);
+}
+static inline float linear_to_pq(float l) {
+    const float p = std::pow(std::max(l, 0.0f), 0.1593017578125f);
+    return std::pow((0.8359375f + 18.8515625f*p) / (1.0f + 18.6875f*p), 78.84375f);
+}
+
+// ARIB STD-B67 HLG (scene-referred OETF)
+static inline float hlg_to_linear(float e) {
+    const float a=0.17883277f, b=0.28466892f, c=0.55991073f;
+    return e <= 0.5f ? e*e/3.0f : (std::exp((e - c)/a) + b) / 12.0f;
+}
+static inline float linear_to_hlg(float l) {
+    const float a=0.17883277f, b=0.28466892f, c=0.55991073f;
+    return l <= 1.0f/12.0f ? std::sqrt(3.0f*std::max(l, 0.0f)) : a*std::log(12.0f*l - b) + c;
+}
+
 inline void build_transfer_luts(TransferLuts& L, int kind) {
     for (int i = 0; i < LUT_SIZE; ++i) {
         const float c = float(i) / (LUT_SIZE - 1);
-        if (kind == TF_BT709) { L.to_linear[i] = bt7092lin(c);   L.from_linear[i] = lin2bt709(c); }
-        else                  { L.to_linear[i] = srgb2lin(c);   L.from_linear[i] = lin2srgb(c); }
+        switch (kind) {
+            case TF_BT709:  L.to_linear[i] = bt7092lin(c);   L.from_linear[i] = lin2bt709(c);   break;
+            case TF_ACEScct:L.to_linear[i] = std::max(acesct_to_lin(c), 0.0f);L.from_linear[i] = lin_to_acesct(c);break;
+            case TF_PQ:     L.to_linear[i] = pq_to_linear(c); L.from_linear[i] = linear_to_pq(c); break;
+            case TF_HLG:    L.to_linear[i] = hlg_to_linear(c);L.from_linear[i] = linear_to_hlg(c);break;
+            default:        L.to_linear[i] = srgb2lin(c);    L.from_linear[i] = lin2srgb(c);     break;
+        }
     }
 }
 

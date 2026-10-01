@@ -13,6 +13,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++ ffmpeg python3-numpy curl
 
+      - name: Show ffmpeg version (golden reference)
+        run: ffmpeg -version | head -1
+
       - name: Unit tests
         run: |
           g++ -O2 -Wall -Wextra -std=c++17 -Isrc tests/test_core.cpp -o test_core

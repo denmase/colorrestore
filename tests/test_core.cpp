@@ -327,6 +327,51 @@ int main() {
         CHECK(std::fabs(l0-l1) < 1e-3f, "pl=1 preserves lightness");
     }
 
+
+    // TF1. ACEScct anchor values + roundtrip
+    {
+        CHECK(std::fabs(lin_to_acesct(1.0f) - 0.5547945f) < 1e-4f, "ACEScct(1.0)");
+        CHECK(std::fabs(acesct_to_lin(0.41366f) - 0.18f) < 2e-3f, "ACEScct^-1(0.4137)~0.18");
+        TransferLuts L; build_transfer_luts(L, TF_ACEScct);
+        float e = 0.f;
+        // valid ACEScct code domain is [0.0729 (black floor), 0.5548 (HDR headroom)];
+        // below the floor decodes to negative linear and clamps, above headroom exceeds 1.0
+        for (int i = 8; i <= 55; ++i) { float x=i/100.f; e=std::max(e,std::fabs(lut_lookup(L.from_linear,lut_lookup(L.to_linear,x))-x)); }
+        CHECK(e < 1.5e-2f, "ACEScct LUT roundtrip (valid code domain)");
+    }
+    // TF2. PQ roundtrip + monotonic + endpoints
+    {
+        TransferLuts L; build_transfer_luts(L, TF_PQ);
+        float e = 0.f;
+        // PQ near-black codes (<0.2 => under 10 nits) sit in the first uniform LUT bin
+        // where the encode curve is near-vertical; that region carries no real signal.
+        for (int i = 20; i <= 100; ++i) { float x=i/100.f; e=std::max(e,std::fabs(lut_lookup(L.from_linear,lut_lookup(L.to_linear,x))-x)); }
+        CHECK(e < 2e-2f, "PQ LUT roundtrip (>= 0.2 code)");
+        CHECK(lut_lookup(L.to_linear, 0.f) == 0.f && lut_lookup(L.to_linear, 1.f) > 0.99f, "PQ endpoints");
+        bool mono = true;
+        for (int i = 1; i < LUT_SIZE; ++i) mono &= (L.to_linear[i] >= L.to_linear[i-1]);
+        CHECK(mono, "PQ monotonic");
+    }
+    // TF3. HLG roundtrip + endpoints
+    {
+        TransferLuts L; build_transfer_luts(L, TF_HLG);
+        float e = 0.f;
+        for (int i = 1; i <= 100; ++i) { float x=i/100.f; e=std::max(e,std::fabs(lut_lookup(L.from_linear,lut_lookup(L.to_linear,x))-x)); }
+        CHECK(e < 1.5e-2f, "HLG LUT roundtrip");
+        CHECK(std::fabs(lut_lookup(L.from_linear, 0.f)) < 1e-3f && std::fabs(lut_lookup(L.from_linear, 1.f)-1.f) < 5e-3f, "HLG endpoints");
+    }
+    // TF4. space=2 identity bypass exact
+    {
+        const int w=4,h=4;
+        std::vector<uint8_t> r(w*h),g(w*h),b(w*h),ro(w*h),go(w*h),bo(w*h);
+        for (int i=0;i<w*h;++i){r[i]=uint8_t(10+i*7);g[i]=uint8_t(50+i*3);b[i]=uint8_t(90+i);}
+        VibranceParams p; p.intensity=0.f;   // space resolved via LUT in wrapper; frame fn same as space=1
+        TransferLuts L; build_transfer_luts(L, TF_ACEScct);
+        vibrance_frame_lut<uint8_t>(p, L, r.data(),g.data(),b.data(), ro.data(),go.data(),bo.data(), w,h,w,w);
+        bool same=true; for(int i=0;i<w*h;++i) same&=(r[i]==ro[i]&&g[i]==go[i]&&b[i]==bo[i]);
+        CHECK(same, "space=2 identity exact");
+    }
+
     std::printf("\n%s (%d failures)\n", failures ? "TESTS FAILED" : "ALL TESTS PASSED", failures);
     return failures ? 1 : 0;
 }

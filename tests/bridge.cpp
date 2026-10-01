@@ -5,7 +5,8 @@
 using namespace colorrestore;
 extern "C" {
 void cr_vibrance_rgb24(const uint8_t* in, uint8_t* out, int w, int h,
-                       float intensity, float rb, float gb, float bb, int alternate)
+                       float intensity, float rb, float gb, float bb, int alternate,
+                       float lr, float lg, float lb)
 {
     const int npix = w * h;
     std::vector<uint8_t> r(npix), g(npix), b(npix), ro(npix), go(npix), bo(npix);
@@ -13,6 +14,7 @@ void cr_vibrance_rgb24(const uint8_t* in, uint8_t* out, int w, int h,
     VibranceParams p;
     p.intensity = intensity; p.skin = 0.f;
     p.balance[0]=rb; p.balance[1]=gb; p.balance[2]=bb;
+    p.luma[0]=lr; p.luma[1]=lg; p.luma[2]=lb;
     p.alternate = alternate != 0;
     vibrance_frame<uint8_t>(p, r.data(), g.data(), b.data(), ro.data(), go.data(), bo.data(), w, h, w, w);
     for (int i = 0; i < npix; ++i) { out[3*i]=ro[i]; out[3*i+1]=go[i]; out[3*i+2]=bo[i]; }

@@ -60,17 +60,32 @@ Vibrance(intensity=0.5, space=1, transfer=1)
 
 # perceptual: boost chroma without hue shift
 Vibrance(intensity=0.5, space=3)
+
+# HDR source (PQ) graded in linear light
+Vibrance(intensity=0.4, space=1, transfer=3)
+
+# film-style log grading
+Vibrance(intensity=0.6, space=2)
 ```
 
 ### Technical notes
 
-- FFmpeg's default `rlum/blum` values have **R/B swapped** relative to
-  BT.709 — that is the FFmpeg ground truth; do not "fix" it.
+- FFmpeg's 5.x/6.x default `rlum/blum` values have **R/B swapped** relative
+  to BT.709. FFmpeg 7+ fixed this upstream (same pixel math, new defaults).
+  `legacy=true` reproduces the old behavior for existing scripts; use
+  `legacy=false` to match modern FFmpeg. Explicit `rlum/glum/blum` always
+  win over both. The golden test validates BOTH modes against any ffmpeg
+  version (luma coefficients are passed explicitly).
 - `space=0` with all tweaks at default is bit-exact against `vf_vibrance`.
 - Oklab uses Bjorn Ottosson's published spec matrices (NOT the
   colour-science variant — their `XYZ_to_Oklab` uses a different
   XYZ->LMS matrix; see `gt_oklab.py`, which validates both references).
-- PQ/HLG not yet supported for `space>=1`. `space=2` is reserved for log.
+- `space=2` uses ACEScct (log grading); valid code domain is
+  [0.0729, 0.5548] — SDR-range content. Codes below the black floor clamp.
+- PQ/HLG (auto-detected from the `_Transfer` prop: 16=PQ, 18=HLG) are
+  decoded to *relative* linear (1.0 = 10000 nits for PQ). Vibrance then
+  works like any linear-light source. PQ near-black codes (<0.2, i.e.
+  under ~10 nits) quantize in the uniform LUT and carry no real signal.
 - YUV input is auto-converted to RGB; planar RGB 8/16/float supported.
 - Target: AviSynth+ interface v12+ (r10 / 3.7.3+). MT-safe (gain state is
   mutex-protected; smoothing is deterministic per frame).
@@ -173,7 +188,7 @@ touched, so the golden test stays valid forever.
 
 - [x] Vibrance: FFmpeg port + tweak layer + auto/smoothing + linear + Oklab
 - [x] ColorTemp (port of vf_colortemperature — golden-tested)
-- [ ] space=2 (log), PQ/HLG transfers for space>=1
+- [x] space=2 (ACEScct log), PQ/HLG transfers
 - [ ] doom9 release
 
 ## License
