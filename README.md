@@ -1,7 +1,6 @@
 # ColorRestore — AviSynth+ Plugin
 [![CI](https://github.com/denmase/colorrestore/actions/workflows/CI.yml/badge.svg)](https://github.com/denmase/colorrestore/actions/workflows/CI.yml)
 
-AviSynth+ plugin for color correction. Currently ships two filters: **Vibrance**, **ColorTem**.
 
 ## Vibrance
 
@@ -133,7 +132,10 @@ ColorTemp(temperature=4500, pl=1)
 
 ```
 # needs the official avisynth.h (AviSynthPlus r10+, interface 12) on the include path
-g++ -O2 -std=c++17 -shared -I<path-to-avisynth-include> ColorRestore.cpp -o ColorRestore.dll
+# MinGW: static-link the GCC runtime so the dll loads without MSYS2 DLLs
+g++ -O2 -std=c++17 -shared -I<path-to-avisynth-include> ColorRestore.cpp -o ColorRestore.dll \
+    -static-libgcc -static-libstdc++ \
+    -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive
 # MSVC: cl /O2 /std:c++17 /LD /I<include> ColorRestore.cpp
 ```
 
@@ -198,3 +200,17 @@ touched, so the golden test stays valid forever.
 Code ported from FFmpeg: LGPL v2.1+ (per FFmpeg's license). Original code
 (tweak layer, adaptive gain, Oklab glue): MIT. Pick either to match your
 distribution needs; FFmpeg-derived files are marked in their headers.
+
+## Troubleshooting
+
+**Plugin loads, but `Vibrance`/`ColorTemp` are "unknown function".**
+Almost always: the DLL was built against `tools/avisynth_stub.h` instead of
+the official `avisynth.h`. The stub's `AddFunction` is a no-op by design
+(compile-check only), so the plugin registers nothing. Rebuild against the
+official headers from the AviSynthPlus repo. The stub emits a compiler
+warning when a Windows DLL is built against it.
+
+**`LoadPlugin` fails with "The specified module could not be found" (126).**
+MinGW runtime DLLs missing. Use `-static-libgcc -static-libstdc++` and
+`-Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive`, or build
+with clang-cl/MSVC (no runtime dependency).

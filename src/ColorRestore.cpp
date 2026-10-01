@@ -254,8 +254,14 @@ AVSValue __cdecl Create_ColorTemp(AVSValue args, void*, IScriptEnvironment* env)
 // undefined reference, Windows linkers do not.
 const AVS_Linkage* AVS_linkage = nullptr;
 
-extern "C" __attribute__((visibility("default")))
-const char* AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* linkage) {
+// symbol export: declspec for MSVC/clang-cl, visibility attribute elsewhere
+#ifdef _MSC_VER
+  #define COLORRESTORE_EXPORT __declspec(dllexport)
+#else
+  #define COLORRESTORE_EXPORT __attribute__((visibility("default")))
+#endif
+
+static const char* colorrestore_init(IScriptEnvironment* env, const AVS_Linkage* linkage) {
     AVS_linkage = linkage;   // required: host passes linkage, plugins must adopt it
     env->AddFunction(
         "Vibrance",
@@ -271,4 +277,18 @@ const char* AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* link
         "c[temperature]f[mix]f[pl]f",
         Create_ColorTemp, nullptr);
     return "ColorRestore: Vibrance (FFmpeg vf_vibrance port + tweak layer + linear space + adaptive gain)";
+}
+
+// Entry points. The host tries AvisynthPluginInit3 first (modern AviSynth+);
+// AvisynthPluginInit2 is the fallback for hosts/loader paths that do not
+// resolve Init3 -- without it, the host reports
+// "cannot be used as a plugin for avisynth".
+extern "C" COLORRESTORE_EXPORT
+const char* AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* linkage) {
+    return colorrestore_init(env, linkage);
+}
+
+extern "C" COLORRESTORE_EXPORT
+const char* AvisynthPluginInit2(IScriptEnvironment* env) {
+    return colorrestore_init(env, nullptr);
 }

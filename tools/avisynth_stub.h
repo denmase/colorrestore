@@ -1,6 +1,16 @@
 // ============================================================================
 // avisynth.h  --  MINIMAL STUB for offline build-testing (AviSynth+ API,
-// interface version 12 shape). NOT the official header. Replicates only the
+// interface version 12 shape). NOT the official header.
+//
+// >>> WARNING: AddFunction() here is a NO-OP. A DLL built against this stub
+// >>> loads but registers ZERO functions. For real plugins, build against
+// >>> the official avisynth.h from AviSynthPlus. <<<
+// ============================================================================
+#if defined(_WIN32) && defined(_DLL)
+  #pragma message("WARNING: building a DLL against avisynth_stub.h -- it will register no functions! Use the official avisynth.h.")
+#endif
+// ============================================================================
+// Replicates only the
 // subset of the AviSynth+ C++ API that ColorRestore.cpp uses, so the wrapper
 // compiles here. For real builds, use the official avisynth.h from
 // AviSynthPlus (r10+/3.7.3+, interface version 12) -- no wrapper changes
