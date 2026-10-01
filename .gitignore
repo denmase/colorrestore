@@ -1,0 +1,8 @@
+# build artifacts
+*.o
+*.so
+*.dll
+*.raw
+avisynth.h           # copied from tools/avisynth_stub.h for offline builds
+tests/lib*_gt.so
+test_core

@@ -1,0 +1,86 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ ffmpeg python3-numpy curl
+
+      - name: Unit tests
+        run: |
+          g++ -O2 -Wall -Wextra -std=c++17 -Isrc tests/test_core.cpp -o test_core
+          ./test_core
+
+      - name: Fetch official AviSynth+ headers (interface 12+)
+        run: |
+          mkdir -p avs/avs
+          BASE=https://raw.githubusercontent.com/AviSynth/AviSynthPlus/master/avs_core/include
+          curl -sL --retry 3 -o avs/avisynth.h $BASE/avisynth.h
+          for f in config.h capi.h alignment.h posix.h minmax.h types.h cpuid.h filesystem.h win.h; do
+            curl -sL --retry 3 -o avs/avs/$f $BASE/avs/$f
+          done
+          test -s avs/avisynth.h && test -s avs/avs/config.h
+
+      - name: Compile check vs official headers
+        run: g++ -std=c++17 -O2 -Wall -Wextra -Iavs -Isrc -c src/ColorRestore.cpp -o ColorRestore.o
+
+      - name: Build shared library (stub headers)
+        run: |
+          cp tools/avisynth_stub.h avisynth.h
+          g++ -O2 -std=c++17 -shared -fPIC -I. -Isrc src/ColorRestore.cpp -o ColorRestore.so
+          rm -f avisynth.h
+
+      - name: Golden test: Vibrance vs FFmpeg
+        run: cd tests && python3 golden_test.py
+
+      - name: Golden test: ColorTemp vs FFmpeg
+        run: cd tests && python3 gt_colortemp.py
+
+      - name: Golden test: Oklab (dual reference)
+        run: |
+          pip3 install colour-science
+          cd tests && python3 gt_oklab.py
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ColorRestore-linux
+          path: ColorRestore.so
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc curl
+
+      - name: Fetch official AviSynth+ headers
+        shell: msys2 {0}
+        run: |
+          mkdir -p avs/avs
+          BASE=https://raw.githubusercontent.com/AviSynth/AviSynthPlus/master/avs_core/include
+          curl -sL --retry 3 -o avs/avisynth.h $BASE/avisynth.h
+          for f in config.h capi.h alignment.h posix.h minmax.h types.h cpuid.h filesystem.h win.h; do
+            curl -sL --retry 3 -o avs/avs/$f $BASE/avs/$f
+          done
+
+      - name: Build ColorRestore.dll (MinGW)
+        shell: msys2 {0}
+        run: g++ -O2 -std=c++17 -shared -Iavs -Isrc src/ColorRestore.cpp -o ColorRestore.dll
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ColorRestore-windows
+          path: ColorRestore.dll
