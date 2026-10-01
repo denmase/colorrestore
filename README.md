@@ -1,6 +1,7 @@
 # ColorRestore — AviSynth+ Plugin
+[![CI](https://github.com/denmase/colorrestore/actions/workflows/CI.yml/badge.svg)](https://github.com/denmase/colorrestore/actions/workflows/CI.yml)
 
-AviSynth+ plugin for color correction. Currently ships one filter: **Vibrance**.
+AviSynth+ plugin for color correction. Currently ships two filters: **Vibrance**, **ColorTem**.
 
 ## Vibrance
 
@@ -191,7 +192,6 @@ touched, so the golden test stays valid forever.
 - [x] Vibrance: FFmpeg port + tweak layer + auto/smoothing + linear + Oklab
 - [x] ColorTemp (port of vf_colortemperature — golden-tested)
 - [x] space=2 (ACEScct log), PQ/HLG transfers
-- [ ] doom9 release
 
 ## License
 
