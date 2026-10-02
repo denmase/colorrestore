@@ -52,18 +52,21 @@ static inline float smoothed_gain(const float* mean_sats, int n, const VibranceP
 }
 // mean of per-pixel (max-min) saturation over a frame, normalized 0..1
 template <typename T>
-float frame_mean_saturation(const T* R, const T* G, const T* B, int w, int h, int pitch) {
-    const float scale = std::is_same<T, float>::value ? 1.0f
-                      : float((std::uint64_t(1) << (sizeof(T) * 8)) - 1);
+float frame_mean_saturation(const T* __restrict R, const T* __restrict G, const T* __restrict B,
+                            int w, int h, int pitch, int step = 1) {
+    if (step < 1) step = 1;
+    // divisor = number of sampled pixels keeps the mean unbiased
+    const int nx = (w + step - 1) / step;
+    const int ny = (h + step - 1) / step;
     double acc = 0.0;
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
+    for (int y = 0; y < h; y += step) {
+        for (int x = 0; x < w; x += step) {
             float r = R[x] / scale, g = G[x] / scale, b = B[x] / scale;
             acc += double(std::max(r, std::max(g, b)) - std::min(r, std::min(g, b)));
         }
-        R += pitch; G += pitch; B += pitch;
+        R += (int64_t)pitch * step; G += (int64_t)pitch * step; B += (int64_t)pitch * step;
     }
-    return float(acc / double(int64_t(w) * h));
+    return float(acc / double(int64_t(nx) * ny));
 }
 
 // Two-pass adaptive vibrance: pass 1 measures frame mean saturation,
@@ -71,11 +74,11 @@ float frame_mean_saturation(const T* R, const T* G, const T* B, int w, int h, in
 // Deterministic per frame (function of frame content only) -> MT-safe.
 template <typename T>
 void vibrance_frame_auto(VibranceParams p,   // by value: we scale intensity
-                         const T* srcR, const T* srcG, const T* srcB,
-                         T* dstR, T* dstG, T* dstB,
-                         int w, int h, int srcPitch, int dstPitch)
+                         const T* __restrict srcR, const T* __restrict srcG, const T* __restrict srcB,
+                         T* __restrict dstR, T* __restrict dstG, T* __restrict dstB,
+                         int w, int h, int srcPitch, int dstPitch, int sat_step = 1)
 {
-    const float mean_sat = frame_mean_saturation(srcR, srcG, srcB, w, h, srcPitch);
+    const float mean_sat = frame_mean_saturation(srcR, srcG, srcB, w, h, srcPitch, sat_step);
     p.intensity *= auto_gain(mean_sat, p);
     vibrance_frame(p, srcR, srcG, srcB, dstR, dstG, dstB, w, h, srcPitch, dstPitch);
 }
@@ -97,7 +100,9 @@ static inline void compute_tweak_weights(const VibranceParams& p, float r, float
     float skin_w = 1.0f, limit_w = 1.0f, protect_w = 1.0f;
     mask_out = 0.0f;
     if (p.skin > 0.0f || p.show_mask) {
-        float hue = std::atan2(1.7320508f * (g - b), 2.0f * r - g - b) * 57.29578f;
+        constexpr float SQRT_3     = 1.7320508f;  // sqrt(3)
+        constexpr float RAD_TO_DEG = 57.29578f;   // 180/pi
+        float hue = std::atan2(SQRT_3 * (g - b), 2.0f * r - g - b) * RAD_TO_DEG;
         if (hue < 0.0f) hue += 360.0f;
         float d = std::fabs(hue - p.skin_hue);
         if (d > 180.0f) d = 360.0f - d;
@@ -148,8 +153,8 @@ static inline void vibrance_pixel(const VibranceParams& p,
 
 template <typename T>
 void vibrance_frame(const VibranceParams& p,
-                    const T* srcR, const T* srcG, const T* srcB,
-                    T* dstR, T* dstG, T* dstB,
+                    const T* __restrict srcR, const T* __restrict srcG, const T* __restrict srcB,
+                    T* __restrict dstR, T* __restrict dstG, T* __restrict dstB,
                     int w, int h, int srcPitch, int dstPitch)
 {
     if (p.intensity == 0.0f && !p.show_mask) {   // exact identity passthrough
@@ -244,8 +249,8 @@ static inline float lut_lookup(const float* lut, float c) {
 // vibrance in linear light: gamma->linear (LUT), vibrance, linear->gamma (LUT)
 template <typename T>
 void vibrance_frame_lut(const VibranceParams& p, const TransferLuts& L,
-                        const T* srcR, const T* srcG, const T* srcB,
-                        T* dstR, T* dstG, T* dstB,
+                        const T* __restrict srcR, const T* __restrict srcG, const T* __restrict srcB,
+                        T* __restrict dstR, T* __restrict dstG, T* __restrict dstB,
                         int w, int h, int srcPitch, int dstPitch)
 {
     if (p.intensity == 0.0f && !p.show_mask) {   // exact identity passthrough (skip LUT roundtrip)
@@ -360,8 +365,8 @@ static inline void vibrance_pixel_oklab(const VibranceParams& p,
 // frame path: gamma RGB -> linear (LUT) -> Oklab -> vibrance -> inverse
 template <typename T>
 void vibrance_frame_oklab(const VibranceParams& p, const TransferLuts& L_in,
-                          const T* srcR, const T* srcG, const T* srcB,
-                          T* dstR, T* dstG, T* dstB,
+                          const T* __restrict srcR, const T* __restrict srcG, const T* __restrict srcB,
+                          T* __restrict dstR, T* __restrict dstG, T* __restrict dstB,
                           int w, int h, int srcPitch, int dstPitch)
 {
     if (p.intensity == 0.0f && !p.show_mask) {
@@ -447,8 +452,8 @@ static inline void colortemp_pixel(const float color[3], float mix, float pl,
 
 template <typename T>
 void colortemp_frame(const ColorTempParams& p, const float color[3],
-                     const T* srcR, const T* srcG, const T* srcB,
-                     T* dstR, T* dstG, T* dstB,
+                     const T* __restrict srcR, const T* __restrict srcG, const T* __restrict srcB,
+                     T* __restrict dstR, T* __restrict dstG, T* __restrict dstB,
                      int w, int h, int srcPitch, int dstPitch)
 {
     if (p.mix == 0.0f) {   // identity passthrough

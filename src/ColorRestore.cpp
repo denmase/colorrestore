@@ -28,20 +28,21 @@ class VibranceFilter : public GenericVideoFilter {
 
     float meanSatOfFrame(const PVideoFrame& f) {
         const int w = vi.width, h = vi.height;
+        const int step = (int64_t(w) * h > (int64_t(1) << 21)) ? 2 : 1;  // >2MP: sample a coarse grid
         if (vi.ComponentSize() == 1)
             return frame_mean_saturation<uint8_t>(f->GetReadPtr(PLANAR_R), f->GetReadPtr(PLANAR_G),
-                                                  f->GetReadPtr(PLANAR_B), w, h, f->GetPitch(PLANAR_R));
+                                                  f->GetReadPtr(PLANAR_B), w, h, f->GetPitch(PLANAR_R), step);
         if (vi.ComponentSize() == 2)
             return frame_mean_saturation<uint16_t>(
                 reinterpret_cast<const uint16_t*>(f->GetReadPtr(PLANAR_R)),
                 reinterpret_cast<const uint16_t*>(f->GetReadPtr(PLANAR_G)),
                 reinterpret_cast<const uint16_t*>(f->GetReadPtr(PLANAR_B)),
-                w, h, f->GetPitch(PLANAR_R) / 2);
+                w, h, f->GetPitch(PLANAR_R) / 2, step);
         return frame_mean_saturation<float>(
             reinterpret_cast<const float*>(f->GetReadPtr(PLANAR_R)),
             reinterpret_cast<const float*>(f->GetReadPtr(PLANAR_G)),
             reinterpret_cast<const float*>(f->GetReadPtr(PLANAR_B)),
-            w, h, f->GetPitch(PLANAR_R) / 4);
+            w, h, f->GetPitch(PLANAR_R) / 4, step);
     }
 
     float meanSatFor(int n, IScriptEnvironment* env) {
@@ -52,7 +53,13 @@ class VibranceFilter : public GenericVideoFilter {
         }
         const float ms = meanSatOfFrame(child->GetFrame(n, env));
         std::lock_guard<std::mutex> lk(statsMutex);
-        if (statsCache.size() > 64) statsCache.clear();  // crude bound; frames near n stay hot
+        if (statsCache.size() > 64) {
+            // keep a +/-64 window around n; evict far entries instead of
+            // clearing everything (random-access scripts would otherwise
+            // invalidate the whole cache on every jump)
+            statsCache.erase(statsCache.begin(), statsCache.lower_bound(n - 64));
+            statsCache.erase(statsCache.upper_bound(n + 64), statsCache.end());
+        }
         statsCache[n] = ms;
         return ms;
     }
@@ -61,12 +68,12 @@ class VibranceFilter : public GenericVideoFilter {
     void run(const VibranceParams& pp, const TransferLuts* lut, int mode,
              const PVideoFrame& src, PVideoFrame& dst) {
         const int w = vi.width, h = vi.height;
-        const T* sR = reinterpret_cast<const T*>(src->GetReadPtr(PLANAR_R));
-        const T* sG = reinterpret_cast<const T*>(src->GetReadPtr(PLANAR_G));
-        const T* sB = reinterpret_cast<const T*>(src->GetReadPtr(PLANAR_B));
-        T* dR = reinterpret_cast<T*>(dst->GetWritePtr(PLANAR_R));
-        T* dG = reinterpret_cast<T*>(dst->GetWritePtr(PLANAR_G));
-        T* dB = reinterpret_cast<T*>(dst->GetWritePtr(PLANAR_B));
+        const T* __restrict sR = reinterpret_cast<const T*>(src->GetReadPtr(PLANAR_R));
+        const T* __restrict sG = reinterpret_cast<const T*>(src->GetReadPtr(PLANAR_G));
+        const T* __restrict sB = reinterpret_cast<const T*>(src->GetReadPtr(PLANAR_B));
+        T* __restrict dR = reinterpret_cast<T*>(dst->GetWritePtr(PLANAR_R));
+        T* __restrict dG = reinterpret_cast<T*>(dst->GetWritePtr(PLANAR_G));
+        T* __restrict dB = reinterpret_cast<T*>(dst->GetWritePtr(PLANAR_B));
         const int sp = src->GetPitch(PLANAR_R) / int(sizeof(T));
         const int dp = dst->GetPitch(PLANAR_R) / int(sizeof(T));
         if (mode == 3)      vibrance_frame_oklab<T>(pp, *lut, sR, sG, sB, dR, dG, dB, w, h, sp, dp);
