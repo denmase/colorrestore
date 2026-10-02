@@ -54,6 +54,8 @@ static inline float smoothed_gain(const float* mean_sats, int n, const VibranceP
 template <typename T>
 float frame_mean_saturation(const T* __restrict R, const T* __restrict G, const T* __restrict B,
                             int w, int h, int pitch, int step = 1) {
+    const float scale = std::is_same<T, float>::value ? 1.0f
+                      : float((std::uint64_t(1) << (sizeof(T) * 8)) - 1);
     if (step < 1) step = 1;
     // divisor = number of sampled pixels keeps the mean unbiased
     const int nx = (w + step - 1) / step;
